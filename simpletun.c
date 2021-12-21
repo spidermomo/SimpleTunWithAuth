@@ -172,6 +172,28 @@ void usage(void) {
   exit(1);
 }
 
+int check_account_auth(char *input_user, char *input_password)
+{
+	FILE *file;
+	char user[1024] = {0}, pwd[1024] = {0};
+    if (!(file = fopen("account_data.ini", "r")))
+    {
+        perror("open account file error");
+        return -2;
+    }
+    while(!feof(file))
+    {
+        fscanf(file, "%s %s\n", user, pwd);
+        if(strcmp(input_user, user) == 0 && strcmp(input_password, pass) == 0)
+        {
+            fclose(file);
+            return 0;
+        }
+    }
+    fclose(file);
+    return -1;
+}
+
 int main(int argc, char *argv[]) {
   
   int tap_fd, option;
@@ -187,6 +209,11 @@ int main(int argc, char *argv[]) {
   socklen_t remotelen;
   int cliserv = -1;    /* must be specified on cmd line */
   unsigned long int tap2net = 0, net2tap = 0;
+
+  bool need_login = false;
+  char account[IFNAMSIZ]	= "";
+  char password[IFNAMSIZ]	= "";
+  int err_check_account = 0;
 
   progname = argv[0];
   
@@ -218,6 +245,14 @@ int main(int argc, char *argv[]) {
       case 'a':
         flags = IFF_TAP;
         break;
+	  case 'e':		//account name
+		  strncpy(account,optarg, IFNAMSIZ-1);
+		  need_login = true;
+		  break;
+	  case 'w':		//password
+		  strncpy(password,optarg, IFNAMSIZ-1);
+		  need_login = true;
+		  break;
       default:
         my_err("Unknown option %c\n", option);
         usage();
@@ -305,6 +340,12 @@ int main(int argc, char *argv[]) {
       exit(1);
     }
 
+	//do check auth
+	err_check_account = check_account_auth(account, password);
+	if(err_check_account)
+	{
+		//login failed
+	}
     do_debug("SERVER: Client connected from %s\n", inet_ntoa(remote.sin_addr));
   }
   
