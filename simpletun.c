@@ -42,6 +42,7 @@
 #define CLIENT 0
 #define SERVER 1
 #define PORT 55555
+#define ACCOUNT_NAME_SIZE 64
 
 int debug;
 char *progname;
@@ -172,6 +173,17 @@ void usage(void) {
   exit(1);
 }
 
+void record_account(char *input_user, char *input_password)
+{
+
+	FILE *file;
+	 if (input_user && input_password && (file = fopen("account_data.ini", "a+")))
+	 {
+		 fprintf(file, "%s %s\n", input_user, input_password);
+		 fclose(file);
+	 }
+}
+
 int check_account_auth(char *input_user, char *input_password)
 {
 	FILE *file;
@@ -210,9 +222,11 @@ int main(int argc, char *argv[]) {
   int cliserv = -1;    /* must be specified on cmd line */
   unsigned long int tap2net = 0, net2tap = 0;
 
+  int nbyte;
   bool need_login = false;
-  char account[IFNAMSIZ]	= "";
-  char password[IFNAMSIZ]	= "";
+  char account[ACCOUNT_NAME_SIZE]	= {0};
+  char password[ACCOUNT_NAME_SIZE]	= {0};
+  char send_str[CMDSIZE]	= {0};
   int err_check_account = 0;
 
   progname = argv[0];
@@ -246,11 +260,11 @@ int main(int argc, char *argv[]) {
         flags = IFF_TAP;
         break;
 	  case 'e':		//account name
-		  strncpy(account,optarg, IFNAMSIZ-1);
+		  strncpy(account,optarg, ACCOUNT_NAME_SIZE-1);
 		  need_login = true;
 		  break;
 	  case 'w':		//password
-		  strncpy(password,optarg, IFNAMSIZ-1);
+		  strncpy(password,optarg, ACCOUNT_NAME_SIZE-1);
 		  need_login = true;
 		  break;
       default:
@@ -306,6 +320,19 @@ int main(int argc, char *argv[]) {
       exit(1);
     }
 
+	//send account and password to server
+	memset(buffer, '\0', sizeof(char)*BUFSIZE);
+	sprintf(buffer, "-e %s -w %s", account, password);
+
+	nbytes = strlen(buffer);
+	int send_size = send(sock_fd, buffer, nbytes, 0);
+
+	memset(buffer, '\0', sizeof(char)*BUFSIZE);
+	recv(sock_fd, buffer, BUFSIZE, 0);
+
+	if(!strcmp(buffer, "Login faild. Please run the program again."))
+		exit(1);
+
     net_fd = sock_fd;
     do_debug("CLIENT: Connected to server %s\n", inet_ntoa(remote.sin_addr));
     
@@ -331,6 +358,8 @@ int main(int argc, char *argv[]) {
       perror("listen()");
       exit(1);
     }
+
+	record_account(account, password);
     
     /* wait for connection request */
     remotelen = sizeof(remote);
@@ -341,10 +370,32 @@ int main(int argc, char *argv[]) {
     }
 
 	//do check auth
-	err_check_account = check_account_auth(account, password);
-	if(err_check_account)
+	if(need_login)
 	{
-		//login failed
+		//recive from client
+		memset(buffer, '\0', sizeof(char)*BUFSIZE);
+		recv(net_fd, buffer, BUFSIZE, 0);	
+		sscanf(buffer,"-e %s -w %s", account, password);
+		err_check_account = check_account_auth(account, password);
+
+		memset(buffer, '\0', sizeof(char)*BUFSIZE);
+		if(err_check_account)
+		{
+			//login failed
+			strcpy(buffer, "Login faild. Please run the program again.");	
+		}
+		else
+			strcpy(buffer, "Login success.");
+
+		nbytes = strlen(buffer);
+		send(net_fd, buffer, nbytes, 0);
+
+		if(err_check_account)
+			exit(1);
+	}
+	else
+	{
+		//no login required
 	}
     do_debug("SERVER: Client connected from %s\n", inet_ntoa(remote.sin_addr));
   }
@@ -373,6 +424,7 @@ int main(int argc, char *argv[]) {
     if(FD_ISSET(tap_fd, &rd_set)) {
       /* data from tun/tap: just read it and write it to the network */
       
+	  memset(buffer, '\0', sizeof(char)*BUFSIZE);
       nread = cread(tap_fd, buffer, BUFSIZE);
 
       tap2net++;
